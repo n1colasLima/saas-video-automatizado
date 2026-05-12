@@ -22,6 +22,7 @@ export default {
         },
         ink: {
           DEFAULT: "#F8FAFC",
+          soft: "#CBD5E1",
           muted: "#94A3B8",
           dim: "#64748B",
           deep: "#475569",
