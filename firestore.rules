@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Tomada é local-only. Em produção, troque por regras com auth.
+    match /jobs/{jobId} {
+      allow read, write: if true;
+    }
+  }
+}

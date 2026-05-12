@@ -1,104 +1,171 @@
-# Video Auto
+# Tomada
 
-Pipeline em Python que gera vídeos longos (16:9) de curiosidades narradas em PT-BR, do zero ao MP4 pronto, usando APIs gratuitas.
+Pipeline autônomo de geração de vídeos com IA, em Next.js + Firebase + Gemini, com **worker local** para renderização. Sucessor da versão Python (`saas-video-automatizado`).
 
 ## Como funciona
 
 ```
-Tema  →  Roteiro (Gemini)  →  Imagens (Pollinations.ai)  →  Narração (Edge-TTS)
-                                                                   ↓
-                                       Vídeo MP4  ←  MoviePy + Ken Burns
+UI Next (Gradio-like)  →  Firestore (fila)  →  Worker Node local
+                                                  ↓
+                                       Gemini 2.5 Pro   (roteiro / análise)
+                                       Gemini 3.1 Image (imagens / fashion multi-input)
+                                       Gemini 2.5 TTS   (narração)
+                                       Pollinations.ai  (fallback grátis de imagens)
+                                       FFmpeg           (Ken Burns + concat + BGM)
+                                                  ↓
+                                  Firebase Storage      ←  MP4 final + thumbnail
+                                                  ↓
+                          UI Next (Biblioteca / Fila atualiza em real-time)
 ```
 
-## O que é gratuito aqui
+## Dois modos
 
-| Etapa | Serviço | Custo | Precisa chave? |
-|---|---|---|---|
-| Roteiro | Google Gemini (`gemini-2.0-flash-exp`) | Grátis (15 req/min) | Sim |
-| Imagens | Pollinations.ai (FLUX) | Grátis ilimitado | Não |
-| Narração | Microsoft Edge-TTS | Grátis ilimitado | Não |
-| Legendas (opcional) | Groq Whisper | Grátis | Sim |
-| Montagem | MoviePy + FFmpeg | Local, grátis | — |
+- **Vídeo narrado** — tema textual → roteiro → imagens → narração → MP4 (16:9 ou 9:16).
+- **TikTok / Moda** — foto da modelo + fotos da roupa + cenário → imagens fotorrealistas via Gemini Image multi-input → vídeo 9:16 com BGM opcional.
 
 ## Pré-requisitos
 
-- Python 3.10+
-- FFmpeg instalado (`brew install ffmpeg` no macOS)
-- Uma chave da API do Gemini (grátis)
+- Node.js **≥ 20**
+- FFmpeg instalado no `PATH` (ou caminho em `FFMPEG_PATH`)
+- Projeto Firebase com **Firestore** ativado (Spark/free plan)
+- Arquivos ficam em `./output/` e `./uploads/` no disco local (sem storage remoto)
 
-## Instalação
-
-```bash
-cd /Users/nicolas-ginfo/video-auto
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Obtendo a chave do Gemini (grátis, 2 minutos)
-
-1. Acesse https://aistudio.google.com/apikey
-2. Faça login com sua conta Google
-3. Clique em **Create API Key** → escolha qualquer projeto
-4. Copie a chave
-
-## Obtendo a chave do Groq (opcional, grátis)
-
-1. Acesse https://console.groq.com/keys
-2. Crie conta e gere uma API key
-
-## Configuração
+## Setup
 
 ```bash
-cp .env.example .env
-# Edite .env e cole sua chave do Gemini em GEMINI_API_KEY
+cd tomada
+npm install
+cp .env.example .env.local
+# (e) cp .env.example .env  — usado pelo worker
 ```
 
-## Como rodar
+Preencha as variáveis em `.env.local` e `.env`:
+
+1. **`GEMINI_API_KEY`** — pegue em https://aistudio.google.com/apikey
+2. **`NEXT_PUBLIC_FIREBASE_*`** — Console Firebase → Project Settings → Web App
+3. **Service Account** — Console Firebase → Project Settings → Service Accounts → "Generate new private key". Salve o JSON como `serviceAccountKey.json` na raiz do projeto **OU** preencha `FIREBASE_SERVICE_ACCOUNT_KEY` com o JSON em uma linha (escape `\n`).
+
+Suba as regras e o índice do Firestore (uma vez):
 
 ```bash
-source .venv/bin/activate
-python app.py
+firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-A interface abre automaticamente em http://127.0.0.1:7860.
+> [!note]
+> As regras vêm permissivas por padrão. Em produção restrinja por auth.
 
-1. Digite um tema (ex: *"5 lugares mais misteriosos do Brasil"*)
-2. Escolha quantas cenas (12 é um bom padrão)
-3. Escolha a voz
-4. Clique em **Gerar vídeo**
+## Rodando
 
-O vídeo final é salvo em `output/`.
+Em **dois terminais**:
+
+```bash
+# terminal 1 — UI
+npm run dev
+
+# terminal 2 — worker (renderiza vídeos)
+npm run worker
+```
+
+Abra http://localhost:3000 e crie um job. O worker fica fazendo polling no Firestore e processa um job por vez.
 
 ## Estrutura
 
 ```
-video-auto/
-├── app.py                  # Interface Gradio
-├── requirements.txt
-├── .env.example
+tomada/
 ├── src/
-│   ├── config.py           # Config + leitura do .env
-│   ├── script_generator.py # Roteiro via Gemini
-│   ├── image_generator.py  # Imagens via Pollinations
-│   ├── tts.py              # Narração via Edge-TTS
-│   ├── subtitles.py        # Legendas via Groq Whisper
-│   ├── video_assembler.py  # Montagem com Ken Burns
-│   └── pipeline.py         # Orquestrador
-├── output/                 # Vídeos finais
-├── cache/                  # Imagens + áudios intermediários
-└── assets/                 # Trilhas sonoras (opcional)
+│   ├── app/                      # rotas Next App Router
+│   │   ├── page.tsx              # dashboard
+│   │   ├── criar/narrado/page.tsx
+│   │   ├── criar/fashion/page.tsx
+│   │   ├── fila/page.tsx
+│   │   ├── biblioteca/page.tsx
+│   │   └── actions/jobs.ts       # Server Actions (enqueue + upload)
+│   ├── components/
+│   │   ├── ui/                   # primitives (Button, Input, RadioCards, Slider, ...)
+│   │   └── layout/               # Sidebar, PageHeader
+│   └── lib/
+│       ├── firebase/             # client + admin SDK
+│       ├── gemini/               # client + modelos
+│       ├── pipeline/             # script-generator, image-generator, tts,
+│       │                         # fashion-generator, video-assembler, pipeline, youtube-reference
+│       ├── storage/              # upload/download helpers
+│       ├── types/                # types compartilhados (Job, JobParams, etc.)
+│       └── utils/                # cn, paths, time, slug, sleep
+├── worker/
+│   └── index.ts                  # long-poller no Firestore, executa o pipeline
+├── .env.example
+├── firestore.rules
+├── storage.rules
+└── package.json
 ```
 
-## Próximos passos / upgrades
+## Modelos do Gemini usados
 
-- **Trilha sonora:** coloque um MP3 em `assets/bgm.mp3` e passe `bgm_path` no `assemble()`.
-- **Vídeos animados (não só imagens):** trocar Pollinations por Runway/Kling via API (pagas) ou Hugging Face video models.
-- **Avatares falando:** integrar HeyGen ou D-ID (pagos, mas tem free trial).
-- **Vertical (Shorts):** trocar `VIDEO_WIDTH=1080`, `VIDEO_HEIGHT=1920` em `src/config.py`.
+| Função                                  | Modelo                                | Configurável via                |
+| --------------------------------------- | ------------------------------------- | ------------------------------- |
+| Roteiro, planejamento fashion, análise  | `gemini-2.5-pro`                      | `GEMINI_TEXT_MODEL`             |
+| Imagens (narrado + fashion multi-input) | `gemini-3.1-flash-image-preview`      | `GEMINI_IMAGE_MODEL`            |
+| Narração TTS                            | `gemini-2.5-pro-preview-tts`          | `GEMINI_TTS_MODEL`              |
+| Voz padrão                              | `Kore` (Puck/Charon/Fenrir/Aoede)     | `GEMINI_TTS_VOICE`              |
 
-## Limitações conhecidas
+Pollinations.ai (FLUX) está disponível como provedor alternativo e como **fallback automático** quando o Gemini Image falha 3x consecutivas em modo narrado. Não requer chave.
 
-- Pollinations.ai pode ficar lento em horários de pico — o código já tem retry exponencial.
-- Edge-TTS depende de servidores Microsoft; raras vezes pode falhar e basta tentar de novo.
-- Gemini Free Tier: ~15 req/min — suficiente para uso pessoal.
+## Pipeline narrado em detalhes
+
+1. **Referência YouTube (opcional, 0-15%)** — yt-dlp baixa, FFmpeg extrai frames + áudio, Gemini transcreve e analisa estilo.
+2. **Roteiro (18-25%)** — Gemini 2.5 Pro com `response_mime_type=application/json` → `{title, scenes: [{narration, visual}]}`.
+3. **Imagens (28-65%)** — uma chamada por cena, com cache SHA-256 em disco.
+4. **Narração (68-82%)** — Gemini TTS retorna PCM 24kHz, envelopamos em WAV e convertemos para MP3 via FFmpeg.
+5. **Montagem (85-100%)** — FFmpeg renderiza cada cena com Ken Burns (zoompan), legendas opcionais (drawtext), fade in/out, depois concat.
+
+## Pipeline fashion em detalhes
+
+1. **Materialização** — worker baixa modelo/roupas/BGM do Storage para `tmp/`.
+2. **Preparação** — sharp redimensiona para ≤1280px, JPEG quality 88.
+3. **Planejamento (8-10%)** — Gemini 2.5 Pro lista N variações de cena em inglês (mesmo cenário, ângulos diferentes).
+4. **Geração (10-90%)** — Gemini 3.1 Image com **multi-input** (foto modelo + 1..5 roupas + texto) + sistema cíclico de 8 poses.
+5. **Montagem (88-100%)** — concat 9:16 com cortes rápidos (fade 0.15s) + BGM em volume alto (0.85).
+
+## Worker
+
+- **Polling** no Firestore a cada `WORKER_POLL_INTERVAL_MS` (default 2s).
+- **Transação atômica** para reivindicar o próximo job (evita corrida se ligar 2 workers).
+- **Recovery** — jobs em `running` quando o worker reinicia voltam para `queued`.
+- **Concorrência** — 1 job por vez. Para paralelizar, rode múltiplos `npm run worker` (cada um pega um job diferente).
+- **Falhas** — gravam `error` com stack no documento.
+
+## Cache local
+
+- `cache/img_<provider>_<hash>.jpg` — imagens narradas (cacheadas por SHA-256 de `provider|prompt|seed`).
+- `cache/job_<jobId>/audio_NNN.mp3` — áudios TTS de cada cena.
+- `cache/fashion_<jobId>/shot_NNN.jpg` — shots do modo fashion.
+- `cache/yt/<slug>/` — vídeo + frames + transcript de referência YouTube.
+- `output/<ts>_<slug>.mp4` — MP4 final antes do upload.
+
+O cache nunca expira automaticamente; limpe com `rm -rf cache/ output/` se necessário.
+
+## Pontos de extensão
+
+- Novos modos: branch em `lib/pipeline/pipeline.ts::runPipeline`.
+- Novos providers de imagem: estender `lib/pipeline/image-generator.ts`.
+- Novos providers de TTS: estender `lib/pipeline/tts.ts`.
+- Concorrência: rode múltiplos workers, cada um vai pegar o próximo `queued` na transação.
+
+## Diferenças vs versão Python
+
+- **MoviePy → FFmpeg puro** (fluent-ffmpeg + spawn). Ken Burns implementado via filtro `zoompan`.
+- **Edge-TTS → Gemini TTS** (PCM 24kHz → WAV → MP3).
+- **SQLite → Firestore** com snapshot listeners (UI atualiza em tempo real, sem polling).
+- **Storage local** em `./output/<jobId>/video.mp4` e `./uploads/<kind>/...`, servido via rota `/api/files` com suporte a Range requests (player com seek).
+- **faster-whisper → Gemini multimodal** para transcrição da referência YouTube.
+- **Gradio → Next.js App Router + shadcn-style UI**.
+
+## Comandos
+
+| Comando            | Faz                              |
+| ------------------ | -------------------------------- |
+| `npm run dev`      | Next dev server em :3000         |
+| `npm run worker`   | Worker local que processa a fila |
+| `npm run build`    | Build de produção                |
+| `npm run start`    | Servidor de produção             |
+| `npm run lint`     | ESLint                           |
