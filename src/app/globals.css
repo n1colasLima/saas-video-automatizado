@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    background: #07070d;
+    color: #f8fafc;
+    font-family: var(--font-fira-sans), system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  body {
+    background: radial-gradient(
+        ellipse at top left,
+        rgba(225, 29, 72, 0.06) 0%,
+        transparent 50%
+      ),
+      #07070d;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
+@layer components {
+  .va-card {
+    @apply rounded-lg border border-white/10 p-6 backdrop-blur;
+    background: linear-gradient(
+      180deg,
+      rgba(30, 27, 75, 0.4) 0%,
+      rgba(15, 15, 35, 0.6) 100%
+    );
+  }
+  .va-card-title {
+    @apply mb-4 border-b border-white/10 pb-3 text-xs font-bold uppercase tracking-[1.5px] text-ink-muted;
+  }
+  .va-page-eyebrow {
+    @apply font-mono text-[11px] font-bold uppercase tracking-[2px] text-accent;
+  }
+  .va-page-title {
+    @apply text-4xl font-extrabold leading-[1.05] tracking-[-1.2px];
+    background: linear-gradient(135deg, #f8fafc 0%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .va-page-sub {
+    @apply max-w-[720px] text-[15px] leading-relaxed text-ink-muted;
+  }
+}
